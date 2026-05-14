@@ -1,10 +1,10 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from fla.layers.deltaformer import DeltaFormerAttention
-from fla.layers.mla import MultiheadLatentAttention
-from denseslm4.latent_deltaformer import LatentDeltaFormerAttention
-from fla.layers.mamba2 import Mamba2
+from denseslm4.layers.deltaformer import DeltaFormerAttention
+from denseslm4.layers.mla import MultiheadLatentAttention
+from denseslm4.layers.latent_deltaformer import LatentDeltaFormerAttention
+from denseslm4.layers.mamba2 import Mamba2
 from denseslm4.configuration_denseslm4 import DenseSLM4Config
 
 class DenseMLABlock(nn.Module):
