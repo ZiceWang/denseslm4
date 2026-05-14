@@ -1,0 +1,42 @@
+[project]
+name = "denseslm4"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "aaxczxxz", email = "13334689+aaxczxxz@user.noreply.gitee.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "accelerate>=1.1.0",
+    "causal-conv1d>=1.6.2.post1",
+    "datasets>=2.19.1",
+    "flash-attn>=2.8.3",
+    "flash-linear-attention",
+    "ipykernel>=7.2.0",
+    "mamba-ssm>=2.3.2.post1",
+    "tensorboard>=2.20.0",
+    "thop>=0.1.1.post2209072238",
+    "torch>=2.11.0",
+    "transformers>=5.8.0",
+]
+
+[project.scripts]
+denseslm4 = "denseslm4:main"
+denseslm4-train-tinystories = "denseslm4.train_tinystories:cli"
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+flash-linear-attention = { git = "https://github.com/fla-org/flash-linear-attention" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
