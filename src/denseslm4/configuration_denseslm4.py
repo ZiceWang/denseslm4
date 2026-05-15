@@ -48,7 +48,8 @@ class DenseSLM4Config(PretrainedConfig):
         ldf_v_head_dim: int = 64,
         ldf_q_lora_rank: int | None = 64,
         ldf_kv_lora_rank: int = 128,
-        
+        ihc_num_streams: int = 4,  # for IdentityHC
+        hidden_act: str = "silu",
         pad_token_id: int = 0,
         bos_token_id: int = 1,
         eos_token_id: int = 2,
@@ -78,6 +79,9 @@ class DenseSLM4Config(PretrainedConfig):
         self.mla_qk_rope_head_dim = mla_qk_rope_head_dim
         self.mla_v_head_dim = mla_v_head_dim
 
+        # IdentityHC parameters
+        self.ihc_num_streams = ihc_num_streams  # hidden_size must be divisible by num_streams for IdentityHC
+        self.hidden_act = hidden_act
         # LatentDeltaFormer params
         self.ldf_num_heads = ldf_num_heads
         self.ldf_qk_nope_head_dim = ldf_qk_nope_head_dim

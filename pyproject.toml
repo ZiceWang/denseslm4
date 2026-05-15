@@ -23,7 +23,7 @@ dependencies = [
 
 [project.scripts]
 denseslm4 = "denseslm4:main"
-denseslm4-train-tinystories = "denseslm4.train_tinystories:cli"
+denseslm4-train = "denseslm4.train:cli"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]

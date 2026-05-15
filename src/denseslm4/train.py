@@ -1,4 +1,4 @@
-"""TinyStories pretraining entrypoint for DenseSLM4."""
+"""Hybrid Datasets pretraining entrypoint for DenseSLM4."""
 
 from __future__ import annotations
 
@@ -10,9 +10,8 @@ from typing import Annotated, Any
 
 import torch
 import typer
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict
 from transformers import (
-    AutoConfig,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
     PreTrainedTokenizerBase,
@@ -23,52 +22,11 @@ from transformers import (
 
 from denseslm4 import DenseSLM4Config, DenseSLM4ForCausalLM
 from denseslm4.muon import SingleDeviceMuonWithAuxAdam
+from denseslm4.pretrained_dataset import load_pretrained_dataset
 
-
-DEFAULT_DATASET = "nampdn-ai/tiny-textbooks"
-# use tiny stories
-# DEFAULT_DATASET = "nampdn-ai/tiny-stories"
-DEFAULT_TOKENIZER = "Qwen/Qwen3-8B"
-# DEFAULT_COLUMN = "text"
-DEFAULT_COLUMN = "textbook"
-DEFAULT_OUTPUT_DIR = Path("runs/tinystories")
+DEFAULT_TOKENIZER = "tokenizer_workspace"
+DEFAULT_OUTPUT_DIR = Path("runs/my_model_new_tokenizer")
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-
-def split_name(name: str, limit: int | None) -> str:
-    """Build a Hugging Face split expression."""
-
-    return name if limit is None else f"{name}[:{limit}]"
-
-
-def load_splits(
-    dataset_name: str,
-    train_samples: int | None,
-    eval_samples: int | None,
-    data_files: list[str] | None = None,
-) -> DatasetDict:
-    """Load train/validation splits from HuggingFace Hub, local parquet, or cache."""
-
-    load_kwargs: dict[str, Any] = {}
-    if data_files is not None:
-        load_kwargs["data_files"] = data_files
-        load_kwargs["verification_mode"] = "no_checks"
-        load_kwargs["split"] = None  # data_files mode doesn't support split param
-        full_dataset = load_dataset(dataset_name, **load_kwargs)
-        # If it returns a DatasetDict, use "train" or first dataset
-        if isinstance(full_dataset, DatasetDict):
-            if "train" in full_dataset:
-                full_dataset = full_dataset["train"]
-            else:
-                full_dataset = next(iter(full_dataset.values()))
-        # Split into train/validation (90/10)
-        split = full_dataset.train_test_split(test_size=0.01, seed=42)
-        train = split["train"]
-        validation = split["test"]
-    else:
-        train = load_dataset(dataset_name, split=split_name("train", train_samples))
-        validation = load_dataset(dataset_name, split=split_name("test", eval_samples))
-    return DatasetDict(train=train, validation=validation)
 
 
 def prepare_causal_lm_dataset(
@@ -77,11 +35,11 @@ def prepare_causal_lm_dataset(
     block_size: int,
     tokenize_num_proc: int | None,
     map_batch_size: int,
-    text_column: str | None,
+    text_column: str,
 ) -> DatasetDict:
     """Tokenize raw text and rely on datasets fingerprint caching for reuse."""
 
-    column_name = text_column or DEFAULT_COLUMN
+    column_name = text_column
     if column_name not in raw_dataset["train"].column_names:
         available = ", ".join(raw_dataset["train"].column_names)
         raise ValueError(f"Text column '{column_name}' not found in train split. Available columns: {available}")
@@ -111,7 +69,7 @@ def build_model(
     use_projected_embedding: bool = False,
     projected_embedding_path: str | None = None,
 ) -> DenseSLM4ForCausalLM:
-    """Construct the default DenseSLM4 model for TinyStories pretraining."""
+    """Construct the default DenseSLM4 model for Hybrid Datasets pretraining."""
 
     config = DenseSLM4Config(
         vocab_size=vocab_size,
@@ -142,12 +100,7 @@ def ppl(loss: float) -> float:
 
 def main(
     output_dir: Annotated[Path, typer.Option(help="Directory for checkpoints and final artifacts.")] = DEFAULT_OUTPUT_DIR,
-    dataset_name: Annotated[str, typer.Option(help="Dataset name or local dataset path.")] = DEFAULT_DATASET,
     tokenizer_name: Annotated[str, typer.Option(help="Tokenizer name or local tokenizer path.")] = DEFAULT_TOKENIZER,
-    text_column: Annotated[str, typer.Option(help="Dataset column containing text.")] = DEFAULT_COLUMN,
-    train_samples: Annotated[int | None, typer.Option(min=1, help="Optional train split prefix for debugging.")] = None,
-    eval_samples: Annotated[int | None, typer.Option(min=1, help="Optional validation split prefix for debugging.")] = None,
-    data_files: Annotated[str | None, typer.Option(help="Comma-separated list of parquet files for local datasets.")] = None,
     block_size: Annotated[int, typer.Option(min=8, help="Maximum sequence length before dynamic batch padding.")] = 128,
     num_train_epochs: Annotated[float, typer.Option(min=0.0, help="Number of training epochs.")] = 1.0,
     batch_size: Annotated[int, typer.Option(min=1, help="Per-device train/eval batch size.")] = 256,
@@ -166,7 +119,7 @@ def main(
     use_projected_embedding: Annotated[bool, typer.Option("--use-projected-embedding", help="Use projected frozen embedding from SVD.")] = False,
     projected_embedding_path: Annotated[str | None, typer.Option(help="Path to projected embedding checkpoint.")] = None,
 ) -> None:
-    """Pretrain DenseSLM4 on TinyStories using epoch-based Trainer scheduling."""
+    """Pretrain DenseSLM4 on Hybrid Datasets using epoch-based Trainer scheduling."""
 
     set_seed(seed)
     if output_dir.exists() and overwrite_output_dir:
@@ -177,17 +130,16 @@ def main(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # Get vocab_size from model config, not tokenizer (Qwen3: model=151936, tokenizer=151669)
-    model_config = AutoConfig.from_pretrained(tokenizer_name)
-    vocab_size = model_config.vocab_size
+    # Get vocab_size from tokenizer directly
+    vocab_size = len(tokenizer)
     print(f"Tokenizer: {tokenizer_name}")
-    print(f"  Tokenizer vocab_size: {len(tokenizer)}")
-    print(f"  Model config vocab_size: {vocab_size}")
+    print(f"  Tokenizer vocab_size: {vocab_size}")
 
-    data_files_list: list[str] | None = None
-    if data_files:
-        data_files_list = [f.strip() for f in data_files.split(",")]
-    raw_dataset = load_splits(dataset_name, train_samples, eval_samples, data_files=data_files_list)
+    # Load pretrained dataset (直接调用，无需手动指定或命令行输入)
+    pretrained_dataset, text_column = load_pretrained_dataset()
+    # Split into train/validation (99/1)
+    split = pretrained_dataset.train_test_split(test_size=0.001, seed=seed)
+    raw_dataset = DatasetDict(train=split["train"], validation=split["test"])
     train_dataset = prepare_causal_lm_dataset(
         raw_dataset,
         tokenizer,
@@ -300,7 +252,7 @@ def main(
 
 
 def cli() -> None:
-    """Run the TinyStories pretraining CLI."""
+    """Run the Hybrid Datasets pretraining CLI."""
 
     typer.run(main)
 
