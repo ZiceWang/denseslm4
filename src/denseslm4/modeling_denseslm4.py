@@ -9,7 +9,7 @@ from transformers import GenerationMixin, PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutput
 
 from .configuration_denseslm4 import DenseSLM4Config
-from .modeling_hybrid import DenseMLABlock, DenseDeltaFormerBlock, DenseLatentDeltaFormerBlock, DenseMamba2Block,DenseMLAIHCBlock
+from .modules import DenseMLABlock, DenseDeltaFormerBlock, DenseLatentDeltaFormerBlock, DenseMamba2Block,DenseMLAIHCBlock
 
 class DenseSLM4PreTrainedModel(PreTrainedModel):
     """Base class with Transformers-compatible initialization."""
