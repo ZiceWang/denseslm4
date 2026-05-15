@@ -34,7 +34,7 @@ def generate_from_checkpoint(checkpoint_path: str, prompt: str, max_new_tokens: 
     # Retie weights after loading
     model._retie_weights()
     
-    model = model.cuda()
+    model = model.cuda().to(torch.bfloat16)
     model.eval()
     print(f"Model loaded successfully!")
     
