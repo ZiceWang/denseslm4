@@ -61,7 +61,6 @@ def prepare_causal_lm_dataset(
         desc=f"Tokenizing to {block_size} tokens",
     )
 
-
 def build_model(
     tokenizer: PreTrainedTokenizerBase, 
     block_size: int,
@@ -73,11 +72,12 @@ def build_model(
 
     config = DenseSLM4Config(
         vocab_size=vocab_size,
-        hidden_size=512,
-        num_hidden_layers=32,
+        hidden_size=768,
+        num_hidden_layers=48,
         num_attention_heads=16,
-        intermediate_size=1024,
+        intermediate_size=768*4,
         max_position_embeddings=block_size,
+        mamba_n_groups=4,
         dropout=0.0,
         pad_token_id=tokenizer.pad_token_id,
         bos_token_id=tokenizer.bos_token_id or tokenizer.eos_token_id,
@@ -101,9 +101,9 @@ def ppl(loss: float) -> float:
 def main(
     output_dir: Annotated[Path, typer.Option(help="Directory for checkpoints and final artifacts.")] = DEFAULT_OUTPUT_DIR,
     tokenizer_name: Annotated[str, typer.Option(help="Tokenizer name or local tokenizer path.")] = DEFAULT_TOKENIZER,
-    block_size: Annotated[int, typer.Option(min=8, help="Maximum sequence length before dynamic batch padding.")] = 128,
+    block_size: Annotated[int, typer.Option(min=8, help="Maximum sequence length before dynamic batch padding.")] = 1024,
     num_train_epochs: Annotated[float, typer.Option(min=0.0, help="Number of training epochs.")] = 1.0,
-    batch_size: Annotated[int, typer.Option(min=1, help="Per-device train/eval batch size.")] = 256,
+    batch_size: Annotated[int, typer.Option(min=1, help="Per-device train/eval batch size.")] = 32,
     gradient_accumulation_steps: Annotated[int, typer.Option(min=1, help="Gradient accumulation steps.")] = 1,
     learning_rate: Annotated[float, typer.Option(min=0.0, help="AdamW learning rate.")] = 3e-4,
     weight_decay: Annotated[float, typer.Option(min=0.0, help="AdamW weight decay.")] = 0.01,

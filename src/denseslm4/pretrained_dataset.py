@@ -64,15 +64,20 @@ def load_pretrained_dataset() -> tuple[Dataset, str]:
     print(f"Dataset 4 loaded with {len(dataset_4)} samples.")
     sample_cnt += len(dataset_4)
 
+    # ==================== 加载第五个数据集 ====================
+    dataset_5 = load_dataset("parquet", split="train", data_files="./dataset/orca_math_qa.parquet", verification_mode="no_checks")
+    dataset_5 = dataset_5.select_columns("text").cast_column("text", Value("string"))
+    print(f"Dataset 5 loaded with {len(dataset_5)} samples.")
+    sample_cnt += len(dataset_5)
     # ==================== 核心补充：加载额外3个parquet并按0.4%采样 ====================
     print(f"\n总基础样本数: {sample_cnt}，0.4% 采样数量: {int(0.004 * sample_cnt)}")
     spice_sample = int(0.004 * sample_cnt)
-
+    
     # 定义额外数据集路径（你的本地路径）
     extra_data_files = [
-        "/data1/neu_lab2/denseslm4/dataset/1.parquet",
-        "/data1/neu_lab2/denseslm4/dataset/2.parquet",
-        "/data1/neu_lab2/denseslm4/dataset/3.parquet"
+        "./dataset/1.parquet",
+        "./dataset/2.parquet",
+        "./dataset/3.parquet"
     ]
 
     # 加载额外的3个parquet数据集
@@ -102,6 +107,7 @@ def load_pretrained_dataset() -> tuple[Dataset, str]:
         dataset_2,
         dataset_3,
         dataset_4,
+        dataset_5,
         extra_dataset_sampled
     ])
     TEXT_COLUMN = "text"

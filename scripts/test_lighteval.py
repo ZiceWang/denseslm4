@@ -1,10 +1,5 @@
 """Evaluate DenseSLM4 using LightEval library."""
 
-import os
-
-# Set http(s)_proxy port to 7890 for dataset downloads.
-os.environ["http_proxy"] = "http://localhost:7890"
-os.environ["https_proxy"] = "http://localhost:7890"
 import json
 import torch
 from safetensors.torch import load_file
@@ -94,6 +89,7 @@ def evaluate_with_lighteval(
     pipeline_params = PipelineParameters(
         launcher_type=ParallelismManager.NONE,
         max_samples=max_samples,
+        load_tasks_multilingual=True
     )
     
     # Create pipeline
@@ -110,7 +106,7 @@ def evaluate_with_lighteval(
     
     # Show and return results
     pipeline.show_results()
-    pipeline.save_and_push_results() # Saves to output_dir
+    pipeline.save_and_push_results()
     return results
 
 
@@ -119,7 +115,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Evaluate DenseSLM4 with LightEval")
     parser.add_argument("--checkpoint", type=str,
-                       default="/data1/neu_lab2/denseslm4/runs/my_model_new_tokenizer/final_model",
+                       default="./runs/my_model_new_tokenizer/final_model",
                        help="Path to model checkpoint")
     parser.add_argument("--tasks", type=str, 
                        default="truthfulqa:mc|0,gsm8k|3",
