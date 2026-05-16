@@ -7,7 +7,7 @@ from datasets import Value
 import random
 
 
-def load_sample_dataset(sample_size: int = 50000, seed: int = 42) -> Dataset:
+def load_sample_dataset(sample_size: int = 500000, seed: int = 42) -> Dataset:
     """Load a sample of the training dataset for tokenizer training."""
     print(f"Loading dataset sample (target: {sample_size} samples)...")
 
@@ -171,8 +171,8 @@ def train_bpe_tokenizer(texts, vocab_size: int = 10000, save_dir: str = "tokeniz
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--vocab-size", type=int, default=10000)
-    parser.add_argument("--sample-size", type=int, default=50000)
+    parser.add_argument("--vocab-size", type=int, default=1000)
+    parser.add_argument("--sample-size", type=int, default=100000)
     parser.add_argument("--save-dir", type=str, default="tokenizer_output")
     args = parser.parse_args()
 

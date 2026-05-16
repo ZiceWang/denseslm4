@@ -15,17 +15,19 @@ dependencies = [
     "flash-linear-attention",
     "ipykernel>=7.2.0",
     "language-data>=1.4.0",
-    "lighteval[all,multilingual]>=0.13.0",
+    "lighteval[multilingual]>=0.13.0",
     "mamba-ssm>=2.3.2.post1",
     "tensorboard>=2.20.0",
     "thop>=0.1.1.post2209072238",
     "torch>=2.11.0",
     "transformers>=5.8.0",
+    "typer>=0.25.1",
 ]
 
 [project.scripts]
 denseslm4 = "denseslm4:main"
 train = "denseslm4.train:cli"
+train-moe = "denseslm4.train_moe:cli"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]
