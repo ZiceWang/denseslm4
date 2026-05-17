@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import GenerationMixin, PreTrainedModel
 from transformers.activations import ACT2FN
-from transformers.modeling_outputs import CausalLMOutput,CausalLMOutputWithPast
+from transformers.modeling_outputs import CausalLMOutput
 
 from .configuration_denseslm4moe import DenseSLM4MoeConfig
 from .layers.mla import MultiheadLatentAttention
