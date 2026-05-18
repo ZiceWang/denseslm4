@@ -17,6 +17,7 @@ dependencies = [
     "language-data>=1.4.0",
     "lighteval[multilingual]>=0.13.0",
     "mamba-ssm>=2.3.2.post1",
+    "swanlab>=0.7.18",
     "tensorboard>=2.20.0",
     "thop>=0.1.1.post2209072238",
     "torch>=2.11.0",

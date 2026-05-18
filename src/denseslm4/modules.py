@@ -214,10 +214,24 @@ class DenseMamba2Block(nn.Module):
             layer_idx=layer_idx,
         )
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: object | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, object | None] | torch.Tensor:
         residual = hidden_states
-        hidden_states = self.self_attn(hidden_states)[0]
-        return residual + hidden_states
+        hidden_states, _, past_key_values = self.self_attn(
+            hidden_states,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+        )
+        hidden_states = residual + hidden_states
+        if use_cache:
+            return hidden_states, past_key_values
+        return hidden_states
 
 
 class DenseLatentDeltaFormerBlock(nn.Module):

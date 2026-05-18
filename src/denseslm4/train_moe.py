@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import torch
+import swanlab
 import typer
 from datasets import DatasetDict
 from transformers import (
@@ -26,6 +27,10 @@ from denseslm4.pretrained_dataset import load_pretrained_dataset
 
 DEFAULT_TOKENIZER = "tokenizer_workspace"
 DEFAULT_OUTPUT_DIR = Path("runs/denseslm4_moe")
+
+# SwanLab configuration (experiment tracking, works in China)
+SWANLAB_PROJECT = os.environ.get("SWANLAB_PROJECT", "denseslm4_moe")
+
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
@@ -252,6 +257,7 @@ def main(
         bf16=bf16 and torch.cuda.is_available(),
         tf32=tf32 and torch.cuda.is_available(),
         gradient_checkpointing=gradient_checkpointing,
+        lr_scheduler_type="cosine",
         torch_empty_cache_steps=100,
         eval_strategy="steps",
         eval_steps=30000,
@@ -260,7 +266,7 @@ def main(
         logging_steps=logging_steps,
         logging_dir=str(output_dir / "logs"),
         save_total_limit=save_total_limit,
-        report_to=["tensorboard"],
+        report_to=["tensorboard", "swanlab"],
         remove_unused_columns=False,
         seed=seed,
         dataloader_drop_last=True,  # 防止最后一个batch的尺寸不对齐导致Mamba CUDA算子抛错
@@ -312,6 +318,13 @@ def main(
             dict(params=hidden_gains_biases + nonhidden_params, use_muon=False, lr=3e-4, betas=(0.9, 0.95), weight_decay=0.01),
         ]
     trainer.optimizer = SingleDeviceMuonWithAuxAdam(param_groups)
+
+    # Initialize SwanLab experiment tracking
+    swanlab.init(
+        project=SWANLAB_PROJECT,
+        experiment_name=output_dir.name,
+        logdir=str(output_dir / "swanlab_logs"),
+    )
 
     trainer.train()
     metrics = trainer.evaluate()

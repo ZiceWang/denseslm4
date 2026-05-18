@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import GenerationMixin, PreTrainedModel
 from transformers.activations import ACT2FN
-from transformers.modeling_outputs import CausalLMOutput,CausalLMOutputWithPast
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from .configuration_denseslm4moe import DenseSLM4MoeConfig
 from .layers.mla import MultiheadLatentAttention
@@ -222,15 +222,28 @@ class DenseMLAMoeBlock(nn.Module):
         self.post_attention_layernorm = nn.LayerNorm(config.hidden_size)
         self.moe = DenseSLM4Moe(config)
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: object | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, object | None] | torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        hidden_states, _, _ = self.self_attn(hidden_states, attention_mask=None)
+        hidden_states, _, past_key_values = self.self_attn(
+            hidden_states,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+        )
         hidden_states = residual + hidden_states
 
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + self.moe(hidden_states)
+        if use_cache:
+            return hidden_states, past_key_values
         return hidden_states
 
     @torch.no_grad()
@@ -254,12 +267,29 @@ class DenseSLM4MoeModel(DenseSLM4MoePreTrainedModel):
         self.norm = nn.LayerNorm(config.hidden_size)
         self.post_init()
 
-    def forward(self, input_ids: torch.LongTensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: object | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, object | None] | torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
         hidden_states = self.dropout(hidden_states)
         for layer in self.layers:
-            hidden_states = layer(hidden_states)
-        return self.norm(hidden_states)
+            if use_cache:
+                hidden_states, past_key_values = layer(
+                    hidden_states,
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    use_cache=use_cache,
+                )
+            else:
+                hidden_states = layer(hidden_states)
+        hidden_states = self.norm(hidden_states)
+        if use_cache:
+            return hidden_states, past_key_values
+        return hidden_states
 
     @torch.no_grad()
     def update_moe_biases(self) -> None:
@@ -339,9 +369,27 @@ class DenseSLM4MoeForCausalLM(DenseSLM4MoePreTrainedModel, GenerationMixin):
         self,
         input_ids: torch.LongTensor,
         labels: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        past_key_values: object | None = None,
+        use_cache: bool | None = None,
         **_: object,
-    ) -> CausalLMOutput:
-        hidden_states = self.model(input_ids=input_ids)
+    ) -> CausalLMOutputWithPast:
+        use_cache = use_cache if use_cache is not None else getattr(self.config, "use_cache", False)
+        if use_cache and past_key_values is None:
+            from fla.models.utils import Cache
+
+            past_key_values = Cache()
+
+        model_outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+        )
+        if use_cache:
+            hidden_states, past_key_values = model_outputs
+        else:
+            hidden_states = model_outputs
         logits = self.lm_head(hidden_states)
 
         loss = None
@@ -354,6 +402,23 @@ class DenseSLM4MoeForCausalLM(DenseSLM4MoePreTrainedModel, GenerationMixin):
                 ignore_index=-100,
             )
 
-        return CausalLMOutput(loss=loss, logits=logits)
+        return CausalLMOutputWithPast(loss=loss, logits=logits, past_key_values=past_key_values if use_cache else None)
+
+    def prepare_inputs_for_generation(
+        self,
+        input_ids: torch.LongTensor,
+        past_key_values: object | None = None,
+        attention_mask: torch.Tensor | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        if past_key_values is not None and getattr(past_key_values, "get_seq_length", lambda *_: 0)(0) > 0:
+            input_ids = input_ids[:, -1:]
+
+        return {
+            "input_ids": input_ids.contiguous(),
+            "past_key_values": past_key_values,
+            "use_cache": kwargs.get("use_cache", True),
+            "attention_mask": attention_mask,
+        }
 
 
