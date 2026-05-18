@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 from einops import rearrange
+from transformers.cache_utils import Cache
 from transformers.utils import logging
 
-from fla.layers.utils import get_layer_cache, update_layer_cache
 from fla.modules.activations import ACT2FN
 from fla.modules.layernorm_gated import RMSNormGated
 
@@ -32,9 +32,6 @@ with warnings.catch_warnings():
     except ImportError:
         causal_conv1d_update, causal_conv1d_fn = None, None
     is_fast_path_available = selective_state_update is not None
-
-if TYPE_CHECKING:
-    from fla.models.utils import Cache
 
 logger = logging.get_logger(__name__)
 
@@ -678,7 +675,13 @@ class Mamba2(nn.Module):
         output_attentions: bool | None = False,
         **kwargs,
     ) -> tuple[torch.Tensor, torch.Tensor | None, Cache | None]:
-        last_state = get_layer_cache(self, past_key_values)
+        last_state = None
+        if past_key_values is not None and past_key_values.has_previous_state(self.layer_idx):
+            layer_cache = past_key_values.layers[self.layer_idx]
+            last_state = {
+                "conv_state": layer_cache.conv_states,
+                "recurrent_state": layer_cache.recurrent_states,
+            }
 
         if is_fast_path_available and "cuda" in self.in_proj.weight.device.type:
             output, conv_state, ssm_state = self.cuda_kernels_forward(hidden_states, last_state, use_cache, attention_mask)
@@ -688,12 +691,10 @@ class Mamba2(nn.Module):
                 hidden_states = (hidden_states * attention_mask[:, :, None]).to(dtype)
             output, conv_state, ssm_state = self.torch_forward(hidden_states, last_state, use_cache, attention_mask)
 
-        update_layer_cache(
-            self,
-            past_key_values,
-            recurrent_state=ssm_state,
-            conv_state=conv_state,
-            offset=hidden_states.shape[1],
-        )
+        if past_key_values is not None:
+            if conv_state is not None:
+                past_key_values.update_conv_state(conv_state, self.layer_idx)
+            if ssm_state is not None:
+                past_key_values.update_recurrent_state(ssm_state, self.layer_idx)
 
         return output, None, past_key_values

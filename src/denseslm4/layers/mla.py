@@ -20,14 +20,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from transformers.cache_utils import Cache
 from transformers.utils import logging
 
 from fla.layers.utils import pad_input, unpad_input
 from fla.modules import RMSNorm, RotaryEmbedding
 from fla.ops.utils.index import prepare_lens_from_mask
-
-if TYPE_CHECKING:
-    from fla.models.utils import Cache
 
 try:
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -131,7 +129,7 @@ class MultiheadLatentAttention(nn.Module):
         output_attentions: bool = False,
         use_cache: bool = False,
         **kwargs,
-    ) -> tuple[torch.Tensor, torch.Tensor | None, tuple[torch.Tensor] | None]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None, Cache | None]:
         # if attention_mask is not None, this is doing inference
         if attention_mask is not None:
             assert len(attention_mask.shape) == 2, (
@@ -176,14 +174,9 @@ class MultiheadLatentAttention(nn.Module):
         # TODO: instead of caching the full k, v, we can actually only cache the compressed_kv and k_rot
         # and recover the full k, v from compressed_kv and k_rot
         if past_key_values is not None:
-            cache_has_content = past_key_values.get_seq_length(self.layer_idx) > 0
-            k_cached, v_cached = past_key_values.update(
-                attn_state=(k, v),
-                layer_idx=self.layer_idx,
-                offset=q_len,
-            )['attn_state']
-            if cache_has_content:
-                k, v = k_cached, v_cached
+            k, v = past_key_values.update(k.transpose(1, 2), v.transpose(1, 2), self.layer_idx)
+            k = k.transpose(1, 2)
+            v = v.transpose(1, 2)
 
         # Head dim match to use flash-attn
         if self.qk_head_dim != self.v_head_dim:

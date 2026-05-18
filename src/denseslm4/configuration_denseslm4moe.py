@@ -114,6 +114,7 @@ class DenseSLM4MoeConfig(PretrainedConfig):
         # Projected embedding params (for frozen embedding mode)
         self.use_projected_embedding = use_projected_embedding
         self.projected_embedding_path = projected_embedding_path
+        self.layer_types = ["full_attention" if (i + 1) % 4 == 0 else "mamba" for i in range(num_hidden_layers)]
         
         self.initializer_range = initializer_range
         super().__init__(

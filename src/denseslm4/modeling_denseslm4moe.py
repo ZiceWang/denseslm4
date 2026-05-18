@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 from torch.nn import functional as F
+from transformers.cache_utils import DynamicCache
 from transformers import GenerationMixin, PreTrainedModel
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import CausalLMOutputWithPast
@@ -177,6 +178,8 @@ class DenseSLM4MoePreTrainedModel(PreTrainedModel):
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
     _supports_sdpa = True
+    _supports_cache_class = True
+    _is_stateful = True
     _keep_in_fp32_modules_strict = ["e_score_correction_bias"]
 
     def _init_weights(self, module: nn.Module) -> None:
@@ -376,9 +379,7 @@ class DenseSLM4MoeForCausalLM(DenseSLM4MoePreTrainedModel, GenerationMixin):
     ) -> CausalLMOutputWithPast:
         use_cache = use_cache if use_cache is not None else getattr(self.config, "use_cache", False)
         if use_cache and past_key_values is None:
-            from fla.models.utils import Cache
-
-            past_key_values = Cache()
+            past_key_values = DynamicCache(config=self.config)
 
         model_outputs = self.model(
             input_ids=input_ids,
@@ -411,8 +412,10 @@ class DenseSLM4MoeForCausalLM(DenseSLM4MoePreTrainedModel, GenerationMixin):
         attention_mask: torch.Tensor | None = None,
         **kwargs: object,
     ) -> dict[str, object]:
-        if past_key_values is not None and getattr(past_key_values, "get_seq_length", lambda *_: 0)(0) > 0:
+        if past_key_values is not None and past_key_values.get_seq_length() > 0:
             input_ids = input_ids[:, -1:]
+        if kwargs.get("use_cache", True) and past_key_values is None:
+            past_key_values = DynamicCache(config=self.config)
 
         return {
             "input_ids": input_ids.contiguous(),
