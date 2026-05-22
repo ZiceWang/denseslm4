@@ -38,7 +38,7 @@
     urlcolor=blue,
 }
 
-\title{\textbf{SSLM4: Achieving Useful Agent Capabilities at GPT-2 Scale} \\
+\title{\textbf{SSLM: Achieving Useful Agent Capabilities at GPT-2 Scale} \\
 \Large{A Super Small But Usable Architecture}}
 
 \author{
@@ -54,7 +54,7 @@
 \maketitle
 
 \begin{abstract}
-We present SSLM4, a hybrid decoder-only language model designed to achieve \textbf{useful agent-level capabilities at GPT-2 scale (~1.5B parameters)}. The architecture combines three proven innovations: Multi-head Latent Attention (MLA) from DeepSeek V2/V3 for compressed KV-cache and multi-turn conversation memory efficiency, Mamba2 state-space layers for efficient long-context processing and agent planning, and an aux-loss-free Mixture-of-Experts (MoE) module for parameter-efficient scaling without load-balancing auxiliary losses. SSLM4 v2 achieves \textbf{1.45B total parameters} (comparable to GPT-2 XL) with only $\sim$768M active parameters per forward pass, making it well-suited for efficient agent inference. We present complete training results from 22K vocab (SSLM4 v1) to 53K vocab (SSLM4 v2), alongside evaluations on C-Eval, TruthfulQA, and GSM8K benchmarks.
+We present SSLM, a hybrid decoder-only language model designed to achieve \textbf{useful agent-level capabilities at GPT-2 scale (~1.5B parameters)}. The architecture combines three proven innovations: Multi-head Latent Attention (MLA) from DeepSeek V2/V3 for compressed KV-cache and multi-turn conversation memory efficiency, Mamba2 state-space layers for efficient long-context processing and agent planning, and an aux-loss-free Mixture-of-Experts (MoE) module for parameter-efficient scaling without load-balancing auxiliary losses. SSLM v2 achieves \textbf{1.45B total parameters} (comparable to GPT-2 XL) with only $\sim$768M active parameters per forward pass, making it well-suited for efficient agent inference. We present complete training results from 22K vocab (SSLM v1) to 53K vocab (SSLM v2), alongside evaluations on C-Eval, TruthfulQA, and GSM8K benchmarks.
 \end{abstract}
 
 \input{sections/1_introduction}
