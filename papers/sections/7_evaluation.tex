@@ -1,0 +1,93 @@
+\section{Evaluation}
+\label{sec:evaluation}
+
+\subsection{Current Results}
+
+\subsubsection{DenseSLM4MoE v1 (1.4B params, 22K vocab)}
+
+\begin{table}[h]
+    \centering
+    \caption{DenseSLM4MoE v1 LightEval Results}
+    \begin{tabular}{llrr}
+        \toprule
+        \textbf{Task} & \textbf{Metric} & \textbf{0-shot} & \textbf{5-shot} \\
+        \midrule
+        C-Eval (avg, 43 subjects) & Accuracy & 0.217 & \textbf{0.281} \\
+        TruthfulQA \citep{truthfulqa} & MC1 & 0.203 & --- \\
+        TruthfulQA & MC2 & 0.440 & --- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsubsection{DenseSLM4 (Dense, 105M params)}
+
+\begin{table}[h]
+    \centering
+    \caption{DenseSLM4 LightEval Results}
+    \begin{tabular}{llr}
+        \toprule
+        \textbf{Task} & \textbf{Metric} & \textbf{Score} \\
+        \midrule
+        GSM8K \citep{gsm8k} (5-shot) & Extractive Match & 0.076\% \\
+        TruthfulQA (0-shot) & MC1 / MC2 & 0.240 / 0.430 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Analysis: Gap to Useful Agent Level}
+
+Current results on standard benchmarks are \textbf{modest}, which is expected for models at this scale without extensive RLHF:
+
+\begin{table}[h]
+    \centering
+    \caption{Capability Gap Analysis}
+    \begin{tabular}{lllr}
+        \toprule
+        \textbf{Capability} & \textbf{Target} & \textbf{Current} & \textbf{Gap} \\
+        \midrule
+        Chinese reasoning (C-Eval 5-shot) \citep{ceval} & $\ge$35\% & 28.1\% & Needs more Chinese data + RLHF \\
+        Truthfulness (TruthfulQA MC1) & $\ge$40\% & 20-24\% & Needs RLHF \\
+        Math reasoning (GSM8K) & $\ge$20\% & $\sim$0\% & Needs more math data + CoT \\
+        Code generation (HumanEval) \citep{humaneval} & $\ge$20\% & Not evaluated & Planned for v2 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{What DenseSLM4MoE v2 Has That Helps}
+
+\begin{enumerate}
+    \item \textbf{Larger vocab (53K vs 22K):} Better tokenization of Chinese and code
+    \item \textbf{More training steps:} v1 used 129K steps; v2 will reach 191K steps
+    \item \textbf{Better tokenizer compression:} $\sim$1.5 tokens/char (v2) vs $\sim$1.3 (v1)
+    \item \textbf{WCL schedule:} Better LR management for final capability push
+\end{enumerate}
+
+\subsection{Per-Subject C-Eval Analysis (v1, 5-shot)}
+
+\textbf{Strongest subjects ($>$40\%):} College Physics (52.6\%), High School Politics (52.6\%), Computer Network (52.6\%)
+
+\textbf{Weakest subjects ($<$20\%):} Middle School History (13.6\%), Physician (16.3\%), Clinical Medicine (18.2\%)
+
+This suggests the model has better physics/CS knowledge than social sciences --- consistent with English-heavy pretraining dominating the Chinese educational data.
+
+\subsection{Architecture Comparison with GPT-2}
+
+\begin{table}[h]
+    \centering
+    \caption{DenseSLM4MoE v2 vs GPT-2 XL}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{Property} & \textbf{GPT-2 XL (1.5B)} & \textbf{DenseSLM4MoE v2 (1.45B)} \\
+        \midrule
+        Architecture & Transformer (dense) & Hybrid MLA + Mamba2 + MoE \\
+        Attention & Full MHA (16 heads) & MLA compressed (4 KV heads, 512-dim) \\
+        FFN & Dense (intermediate=4$\times$) & Sparse MoE (64 experts, top-2) \\
+        KV Cache & Full (O(N) growth) & Compressed (constant 512-dim/head) \\
+        Layer count & 48 & 48 \\
+        Hidden size & 1600 & 768 \\
+        Vocab size & 50,257 & 52,877 \\
+        Active params/pass & $\sim$1.5B & $\sim$768M (\textbf{2$\times$ more efficient}) \\
+        Total params & 1.5B & 1.45B \\
+        \bottomrule
+    \end{tabular}
+\end{table}

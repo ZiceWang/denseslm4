@@ -73,8 +73,8 @@ def load_sample_dataset(sample_size: int = 500000, seed: int = 42) -> Dataset:
         print(f"Dataset 4 failed: {e}")
 
     # Extra local datasets
+    # NOTE: 1.parquet removed (traditional Chinese, poor tokenizer compression)
     extra_data_files = [
-        "/data1/neu_lab2/denseslm4/dataset/1.parquet",
         "/data1/neu_lab2/denseslm4/dataset/2.parquet",
         "/data1/neu_lab2/denseslm4/dataset/3.parquet"
     ]

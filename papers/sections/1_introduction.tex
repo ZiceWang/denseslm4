@@ -1,0 +1,46 @@
+\section{Introduction}
+\label{sec:introduction}
+
+\subsection{Goal: Useful Agent at GPT-2 Scale}
+
+The original GPT-2 models \citep{gpt2} (117M / 345M / 774M / 1.5B) established that decoder-only transformers at the $\sim$1B parameter scale can exhibit surprising language understanding and generation capabilities. Our goal is to match or exceed GPT-2's utility while being more parameter-efficient, by combining modern architectural innovations (MLA, Mamba2, MoE) that were not available in 2019.
+
+\textbf{``Useful agent level''} means the model should be capable of:
+
+\begin{enumerate}
+    \item \textbf{Tool use:} Calling external tools/APIs in a coherent sequence (ReAct-style) \citep{react}
+    \item \textbf{Multi-step reasoning:} Breaking down complex tasks into subgoals and executing them
+    \item \textbf{Long-horizon memory:} Maintaining context across extended conversations ($\ge$ 1024 tokens)
+    \item \textbf{Multilingual tool navigation:} Operating on both English and Chinese inputs
+    \item \textbf{Code generation \& execution:} Producing correct code for simple tasks
+\end{enumerate}
+
+This goal differentiates DenseSLM4MoE from pure benchmark-optimized models --- we prioritize architectural choices that enable agent workflows, not just high C-Eval scores.
+
+\subsection{Why Hybrid MLA + Mamba2 + MoE?}
+
+For agent workloads, three capabilities matter:
+
+\begin{table}[h]
+    \centering
+    \caption{Architectural solutions for agent capabilities}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{Capability} & \textbf{Requirement} & \textbf{Solution} \\
+        \midrule
+        Long context memory & KV-cache grows with turns & MLA: compresses KV to 512-dim latent \\
+        Efficient processing & 48 layers needed & Mamba2: O(N) SSM for 75\% of layers \\
+        Parameter scale & 1B+ params, manageable compute & MoE: 64 experts, top-2 active \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Contributions}
+
+\begin{enumerate}
+    \item \textbf{Agent-oriented hybrid architecture:} 3:1 Mamba2:MLA layer pattern --- Mamba2 layers handle efficient sequence processing; MLA layers provide high-quality attention with compressed KV-cache for multi-turn memory.
+    \item \textbf{Aux-loss-free MoE routing:} No load-balancing auxiliary loss; instead, a learnable \texttt{e\_score\_correction\_bias} updated via simple load-based feedback, inspired by DeepSeek V3 \citep{deepseekv3} and Nemotron-H \citep{nemotron}.
+    \item \textbf{Grouped top-k routing:} $n\_group=8$, $topk\_group=2$ for coarse-to-fine expert selection, reducing routing decision overhead.
+    \item \textbf{Complete agent-focused training pipeline:} Muon optimizer \citep{muon}, WCL learning rate schedule, multilingual pretraining on English/Chinese/code data, SwanLab tracking.
+    \item \textbf{Ablation study} showing that wider experts (8 experts, top-2) outperform narrower experts (32 experts, top-8) at equal parameter count for our target tasks.
+\end{enumerate}

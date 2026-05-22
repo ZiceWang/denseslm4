@@ -1,0 +1,50 @@
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+DenseSLM4MoE demonstrates a practical hybrid architecture achieving GPT-2-scale parameters (1.45B) with significantly improved active-parameter efficiency ($\sim$768M active vs 1.45B total). The combination of MLA (compressed KV), Mamba2 (efficient SSM layers), and aux-loss-free MoE provides a strong foundation for agent workloads at small scale.
+
+\subsection{Current Status}
+\begin{itemize}
+    \item DenseSLM4MoE v2 training is 29\% complete
+    \item Architecture is validated through ablation and v1 experiments
+    \item Training is stable with no loss spikes or divergence
+\end{itemize}
+
+\subsection{What's Needed to Reach ``Useful Agent Level''}
+
+\begin{enumerate}
+    \item \textbf{Complete v2 training} (remaining $\sim$135K steps, $\sim$50 hours)
+    \item \textbf{RLHF/DPO finetuning:} Current results suggest the model has knowledge but needs preference learning to be useful
+    \item \textbf{Tool-use finetuning:} Fine-tune on tool-calling datasets (ReAct-style \citep{react})
+    \item \textbf{Chinese language improvement:} More high-quality Chinese data
+    \item \textbf{Math reasoning:} Orca Math QA was only 5\% of corpus; more math data + chain-of-thought would help
+\end{enumerate}
+
+\subsection{Limitations}
+\begin{itemize}
+    \item Current benchmarks (C-Eval 28.1\%, TruthfulQA 20\%) are below the threshold for truly useful agents
+    \item No RLHF or DPO has been applied yet --- pure next-token prediction pretraining
+    \item GSM8K near-random suggests mathematical reasoning needs targeted improvement
+    \item Chinese performance bottlenecked by data quality, not architecture
+\end{itemize}
+
+\subsection*{Acknowledgments}
+
+We thank the \texttt{fla} \citep{fla} and \texttt{mamba\_ssm} teams for their excellent open-source implementations of Mamba2 and MLA. We also thank the HuggingFace team for LightEval \citep{lighteval}.
+
+\subsection*{Reproducibility}
+
+All model configurations, training scripts, and evaluation pipelines are available at:
+\begin{verbatim}
+https://github.com/aaxczxxz/denseslm4
+\end{verbatim}
+
+Training can be launched via:
+\begin{verbatim}
+python -m denseslm4.train_moe --output_dir runs/denseslm4_moe_v2 ...
+\end{verbatim}
+
+Evaluation:
+\begin{verbatim}
+python -m lighteval --model_args "pretrained=./runs/denseslm4_moe/final_model,..." ...
+\end{verbatim}

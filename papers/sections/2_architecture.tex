@@ -1,0 +1,142 @@
+\section{Architecture}
+\label{sec:architecture}
+
+\subsection{Design Rationale for Agent Use Cases}
+
+For agent workloads, we made the following architectural decisions:
+
+\textbf{Why 3:1 Mamba2:MLA?}
+\begin{itemize}
+    \item Mamba2 handles the bulk of forward pass computation (75\% of layers) at O(N) complexity, making long-context generation efficient.
+    \item MLA layers appear every 4th layer to provide full attention capability where needed for agentic decisions (e.g., tool selection, instruction following).
+    \item MoE only replaces FFN in MLA layers, keeping active compute low.
+\end{itemize}
+
+\textbf{Why compressed KV-cache via MLA?}
+\begin{itemize}
+    \item Agent systems need to maintain context across many turns. With standard MHA, the KV-cache grows as $2 \times num\_layers \times num\_kv\_heads \times seq\_len \times head\_dim$.
+    \item MLA compresses all KV to a low-rank latent (512-dim), reducing cache memory by $\sim$10$\times$ for the same effective context.
+    \item This enables serving longer agent conversations within the same memory budget.
+\end{itemize}
+
+\textbf{Why aux-loss-free MoE?}
+\begin{itemize}
+    \item Standard MoE with auxiliary load-balancing loss introduces gradient interference between the main language modeling objective and the routing objective.
+    \item Aux-loss-free routing avoids this interference, leading to better loss convergence.
+    \item The bias correction mechanism naturally balances expert utilization without destabilizing training.
+\end{itemize}
+
+\subsection{Overall Structure}
+
+\begin{figure}[h!]
+    \centering
+    \rule{0.8\textwidth}{0.3\textwidth}
+    \caption{DenseSLM4MoE Architecture: Embedding $\rightarrow$ 36 Mamba2 layers + 12 MLA+MoE layers $\rightarrow$ Final LayerNorm $\rightarrow$ LM Head}
+    \label{fig:architecture}
+\end{figure}
+
+The model follows: Embedding $\rightarrow$ [Layer 0-2: Mamba2 $\times$ 3] $\rightarrow$ [Layer 3: MLA + MoE] $\rightarrow$ [Layer 4-6: Mamba2 $\times$ 3] $\rightarrow$ ... (pattern repeats 12 times) $\rightarrow$ Final LayerNorm $\rightarrow$ LM Head (tied to embedding).
+
+\subsection{Mamba2 Layers}
+
+Mamba2 \citep{mamba2} (from \texttt{fla} / \texttt{mamba\_ssm}) uses a hardware-aware chunk-scan algorithm for linear-time sequence modeling:
+
+\begin{algorithm}[H]
+\caption{Mamba2 Layer Forward}
+\begin{algorithmic}
+\STATE Input $\rightarrow$ RMSNormGated $\rightarrow$ [Chunk-scan SSM with state\_size=64, expand=2]
+\STATE $\rightarrow$ Selective State Update $\rightarrow$ Conv1D (kernel=4) $\rightarrow$ Output
+\end{algorithmic}
+\end{algorithm}
+
+\begin{table}[ht!]
+    \centering
+    \caption{Mamba2 Key Parameters}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{Parameter} & \textbf{Value} & \textbf{Agent Implication} \\
+        \midrule
+        mamba\_expand & 2 & 2$\times$ hidden size expansion for SSM state \\
+        mamba\_state\_size & 64 & Small state --- fast inference, limited memory \\
+        mamba\_conv\_kernel & 4 & Short-term local context before SSM \\
+        mamba\_n\_groups & 4 & Grouped state branching for expressiveness \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Multi-head Latent Attention (MLA)}
+
+MLA from DeepSeek V3 \citep{deepseekv3} compresses the KV cache:
+
+\begin{align}
+    Q &: hidden \rightarrow q\_lora\_rank(32) + qk\_nope(128 \times 16) + qk\_rope(64 \times 16) \\
+    KV &: hidden \rightarrow kv\_lora\_rank(512) \quad \text{[compressed representation]}
+\end{align}
+
+\textbf{Key advantage for agents:} The compressed KV representation (512 dim) vs standard KV ($4 \times 128 \times 2 = 1024$ dim) saves $\sim$50\% KV cache memory per layer.
+
+\subsection{MoE Module}
+
+Each MLA layer's FFN is replaced by:
+
+\textbf{Router} --- Single linear: $hidden(768) \rightarrow n\_routed\_experts(64)$, sigmoid scores + correction bias
+
+\textbf{Routed Experts (64):}
+\begin{itemize}
+    \item Each expert: $hidden(768) \rightarrow moe\_intermediate(1024) \rightarrow hidden(768) = \sim$1.57M params
+    \item Top-2 per token $\rightarrow$ $\sim$3.14M active params per MLA layer
+    \item Total MoE params: $64 \times 2 \times 768 \times 1024 \times 2 \approx 201$M (across all 12 MLA layers)
+\end{itemize}
+
+\textbf{Shared Expert (always active):}
+\begin{itemize}
+    \item $hidden(768) \rightarrow shared\_intermediate(1024) \rightarrow hidden(768) = \sim$1.57M params
+    \item Always active, no routing decision needed
+\end{itemize}
+
+\textbf{Grouped routing:}
+\begin{equation}
+    Scores \rightarrow reshape(-1, 8, 8) \rightarrow topk(2) \text{ per group} \rightarrow sum \rightarrow topk(2) groups \rightarrow mask \rightarrow topk(2) experts
+\end{equation}
+
+\subsection{Aux-Loss-Free Routing Algorithm}
+
+During training, after each forward pass (executed in \texttt{update\_expert\_bias()}):
+
+\begin{algorithm}[H]
+\caption{Aux-Loss-Free Routing Bias Update}
+\begin{algorithmic}
+\STATE $load \leftarrow$ bincount(topk\_indices.reshape(-1), minlength=n\_routed\_experts)
+\STATE $target \leftarrow load.mean()$
+\STATE $error \leftarrow sign(target - last\_expert\_load)$
+\STATE $e\_score\_correction\_bias \leftarrow e\_score\_correction\_bias + update\_rate \times error$
+\STATE $e\_score\_correction\_bias \leftarrow e\_score\_correction\_bias - e\_score\_correction\_bias.mean()$ \COMMENT{zero-sum constraint}
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Key properties:}
+\begin{itemize}
+    \item No gradient through the routing balance signal
+    \item Biases evolve smoothly during training
+    \item Zero-sum constraint ensures biases don't shift the overall score distribution
+    \item $update\_rate = 1e-3$ (modest, gradual correction)
+\end{itemize}
+
+\subsection{Active vs Total Parameters}
+
+\begin{table}[ht!]
+    \centering
+    \caption{Parameter Efficiency: Active vs Total}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{Metric} & \textbf{Value} & \textbf{Explanation} \\
+        \midrule
+        Total parameters & 1.45B & Full model including all 64 experts \\
+        Active parameters (per forward pass) & $\sim$768M & 2 experts $\times$ 12 MLA layers + shared expert + all Mamba2/MLA layers \\
+        Embedding/LM head & 40.6M & Tied, not doubled \\
+        MoE experts (stored, not active) & $\sim$201M & All 64 expert pairs stored \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+This gives an \textbf{active ratio of $\sim$53\%}, meaning the model uses $\sim$768M FLOPs per token vs a hypothetical 1.45B for a dense model of the same size.

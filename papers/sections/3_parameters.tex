@@ -1,0 +1,65 @@
+\section{Parameter Counts}
+\label{sec:parameters}
+
+\subsection{DenseSLM4MoE v2 (1.45B total)}
+
+\textbf{Configuration:} vocab=52,877, hidden=768, layers=48, heads=16, MoE=64 experts top-2
+
+\begin{table}[h]
+    \centering
+    \caption{DenseSLM4MoE v2 Parameter Breakdown}
+    \begin{tabular}{llr}
+        \toprule
+        \textbf{Component} & \textbf{Formula} & \textbf{Count} \\
+        \midrule
+        Embedding & 52,877 $\times$ 768 & 40.6M \\
+        Mamba2 $\times$ 36 & $\sim$2.5M/layer $\times$ 36 & $\sim$90M \\
+        MLA $\times$ 12 & $\sim$5M/layer $\times$ 12 & $\sim$60M \\
+        Router (gate) & 768 $\times$ 64 & 49K \\
+        MoE routed experts & 64 $\times$ 2 $\times$ 768 $\times$ 1024 & 201M \\
+        MoE shared expert $\times$ 12 & 2 $\times$ 768 $\times$ 1024 & 19M \\
+        Final LayerNorm & 2 $\times$ 768 & 1.5K \\
+        \midrule
+        \textbf{Total} & & \textbf{$\sim$1,418M} (reported: 1,450.86M) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{DenseSLM4 (Dense, $\sim$105M)}
+
+\begin{table}[h]
+    \centering
+    \caption{DenseSLM4 Parameter Breakdown}
+    \begin{tabular}{lr}
+        \toprule
+        \textbf{Component} & \textbf{Count} \\
+        \midrule
+        Embedding & 4.73M \\
+        Mamba2 $\times$ 24 & $\sim$60M \\
+        MLA $\times$ 8 + DenseMLP & $\sim$40M \\
+        Final LayerNorm & $\sim$0.001M \\
+        \midrule
+        \textbf{Total} & \textbf{$\sim$105M} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Ablation Study: Expert Width vs Count}
+
+Three configurations at $\sim$25M parameters (small Transformer backbone):
+
+\begin{table}[h]
+    \centering
+    \caption{Expert Width Ablation Study}
+    \begin{tabular}{clllrrr}
+        \toprule
+        \textbf{Config} & \textbf{Expert Dim} & \textbf{\# Experts} & \textbf{Top-K} & \textbf{Eval Loss} & \textbf{PPL} & \textbf{Params} \\
+        \midrule
+        A (narrow) & 192 & 32 & 8 & 2.113 & 8.27 & 24.83M \\
+        \textbf{B (wide)} & \textbf{768} & \textbf{8} & \textbf{2} & \textbf{2.033} & \textbf{7.63} & \textbf{24.80M} \\
+        C (medium) & 384 & 16 & 4 & 2.053 & 7.80 & 24.81M \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{Conclusion:} Wider experts with lower top-k consistently outperform narrower experts with higher top-k at equal parameter count. This informed our choice of $n\_routed\_experts=64, topk=2$.

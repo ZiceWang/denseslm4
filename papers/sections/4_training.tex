@@ -1,0 +1,52 @@
+\section{Training Infrastructure}
+\label{sec:training}
+
+\subsection{Optimizer: Muon + AdamW Hybrid}
+
+\textbf{Muon} \citep{muon} (MomentUm Orthogonalized by Newton-Schulz):
+\begin{itemize}
+    \item Applied to: All linear weight matrices (Mamba2, MLA, MoE experts)
+    \item Uses 5th-order Newton-Schulz iteration to orthogonalize gradient updates
+    \item \texttt{moonlight} scaling mode: $0.2 \times \sqrt{max(A, B)} + wd \times 0.1$
+\end{itemize}
+
+\textbf{AdamW} for: Embeddings, biases, LayerNorms, LM head
+
+\textbf{Why Muon for agent models?}
+\begin{itemize}
+    \item Muon achieves faster convergence on transformer weight matrices compared to vanilla AdamW in preliminary experiments
+    \item Faster convergence means fewer training steps to reach the same capability level
+\end{itemize}
+
+\subsection{Learning Rate Schedule: WCL}
+
+\textbf{WCL (Warmup $\rightarrow$ Cosine $\rightarrow$ Linear):}
+
+\begin{align}
+    LR = base\_lr \times \begin{cases}
+        step / warmup & \text{if } step < warmup \\
+        0.5 \times (1 + \cos(\pi \times (step - warmup) / (0.5 \times total - warmup))) & \text{if } step < 0.5 \times total \\
+        1 - (step - 0.5 \times total) / (0.5 \times total) & \text{if } step \ge 0.5 \times total
+    \end{cases}
+\end{align}
+
+For DenseSLM4MoE v2: warmup=9,000, total=190,967 $\rightarrow$ cosine phase from step 9,000 to $\sim$104,500.
+
+\subsection{Agent-Specific Training Considerations}
+
+For agent workloads, we made the following training choices:
+
+\begin{enumerate}
+    \item \textbf{Strided chunking (stride=896, seq\_len=1024):} Creates overlapping 128-token windows between chunks, simulating multi-turn agent conversations where context bleeds across turns.
+    \item \textbf{Multilingual data (English + Chinese + Code):} Agent systems must operate across languages and interact with code.
+    \item \textbf{Long sequence length (1024):} Chosen to support agent context windows of 10+ turns $\times$ $\sim$100 tokens/turn.
+\end{enumerate}
+
+\subsection{Training Speed}
+
+\begin{itemize}
+    \item \textbf{Platform:} NEU-lab2 GPU server (ssh-coordinator skill)
+    \item \textbf{DenseSLM4MoE v2 speed:} $\sim$1.3s/step at batch\_size=32, seq\_len=1024
+    \item \textbf{TF32} CUDA matmul enabled
+    \item \textbf{Estimated total training time:} $\sim$70 hours for full 190K steps at current speed
+\end{itemize}

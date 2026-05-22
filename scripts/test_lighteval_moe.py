@@ -87,9 +87,9 @@ def evaluate_with_lighteval(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate DenseSLM4MoE with LightEval")
     parser.add_argument("--checkpoint", type=str, default="./runs/denseslm4_moe/final_model")
-    parser.add_argument("--tasks", type=str, default="ceval_zho_mcf|0")
-    parser.add_argument("--max_samples", type=int, default=64)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--tasks", type=str, default="cmmlu_zho_mcf|5")
+    parser.add_argument("--max_samples", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--output_dir", type=str, default="./lighteval_results_moe")
     args = parser.parse_args()
 

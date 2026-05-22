@@ -17,3 +17,17 @@ runs/
 *.log
 
 dataset/*
+
+# Tex Artifacts
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fls
+*.log
+*.nav
+*.out
+*.snm
+*.toc
+*.synctex.gz
+*.fdb_latexmk

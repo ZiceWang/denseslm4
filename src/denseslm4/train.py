@@ -36,30 +36,55 @@ def prepare_causal_lm_dataset(
     tokenize_num_proc: int | None,
     map_batch_size: int,
     text_column: str,
+    stride: int | None = None,
+    max_chunks_per_doc: int | None = None,
 ) -> DatasetDict:
-    """Tokenize raw text and rely on datasets fingerprint caching for reuse."""
-
     column_name = text_column
     if column_name not in raw_dataset["train"].column_names:
         available = ", ".join(raw_dataset["train"].column_names)
         raise ValueError(f"Text column '{column_name}' not found in train split. Available columns: {available}")
 
-    def tokenize(batch: dict[str, list[Any]]) -> dict[str, list[list[int]]]:
-        return tokenizer(
+    tokenized = raw_dataset.map(
+        lambda batch: tokenizer(
             batch[column_name],
-            truncation=True,
-            max_length=block_size,
+            truncation=stride is None,
+            max_length=block_size if stride is None else None,
             padding=False,
-        )
-
-    return raw_dataset.map(
-        tokenize,
+        ),
         batched=True,
         batch_size=map_batch_size,
         num_proc=tokenize_num_proc,
         remove_columns=raw_dataset["train"].column_names,
-        desc=f"Tokenizing to {block_size} tokens",
+        desc="Tokenizing",
     )
+
+    if stride is not None and stride < block_size:
+        if "attention_mask" in tokenized["train"].column_names:
+            tokenized = tokenized.remove_columns("attention_mask")
+
+        def chunk(examples):
+            chunks = []
+            for ids in examples["input_ids"]:
+                count = 0
+                for start in range(0, len(ids) - block_size + 1, stride):
+                    if max_chunks_per_doc is not None and count >= max_chunks_per_doc:
+                        break
+                    chunks.append(ids[start:start + block_size])
+                    count += 1
+            return {"input_ids": chunks}
+
+        desc = f"Chunking stride={stride}"
+        if max_chunks_per_doc is not None:
+            desc += f" max={max_chunks_per_doc}"
+        tokenized = tokenized.map(
+            chunk,
+            batched=True,
+            batch_size=map_batch_size,
+            num_proc=tokenize_num_proc,
+            desc=desc,
+        )
+
+    return tokenized
 
 def build_model(
     tokenizer: PreTrainedTokenizerBase, 
@@ -118,6 +143,9 @@ def main(
     overwrite_output_dir: Annotated[bool, typer.Option("--overwrite-output-dir", help="Delete output_dir before training.")] = False,
     use_projected_embedding: Annotated[bool, typer.Option("--use-projected-embedding", help="Use projected frozen embedding from SVD.")] = False,
     projected_embedding_path: Annotated[str | None, typer.Option(help="Path to projected embedding checkpoint.")] = None,
+    stride: Annotated[int | None, typer.Option("--stride", help="Sliding window stride for chunking (None = truncate to block_size).")] = None,
+    muon_scale: Annotated[str, typer.Option("--muon-scale", help="Muon update scaling: kellerjordan or moonlight.")] = "moonlight",
+    max_chunks_per_doc: Annotated[int | None, typer.Option("--max-chunks-per-doc", help="Max chunks per document with stride (None = unlimited).")] = None,
 ) -> None:
     """Pretrain DenseSLM4 on Hybrid Datasets using epoch-based Trainer scheduling."""
 
@@ -147,9 +175,16 @@ def main(
         tokenize_num_proc,
         map_batch_size,
         text_column,
+        stride=stride,
+        max_chunks_per_doc=max_chunks_per_doc,
     )
     if len(train_dataset["train"]) == 0 or len(train_dataset["validation"]) == 0:
         raise RuntimeError("Prepared dataset is empty; decrease --block-size or increase sample count.")
+
+    overlap = block_size - stride if (stride is not None and stride < block_size) else 0
+    print(f"Data: {len(train_dataset['train'])} train / {len(train_dataset['validation'])} val samples")
+    cap = f", max_chunks={max_chunks_per_doc}" if max_chunks_per_doc else ""
+    print(f"Chunk: block_size={block_size}, stride={stride or block_size}, overlap={overlap}{cap}")
 
     model = build_model(
         tokenizer, 
@@ -211,7 +246,7 @@ def main(
         hidden_weights = [p for n, p in model.named_parameters() if p.requires_grad and p.ndim >= 2]
         hidden_gains_biases = [p for n, p in model.named_parameters() if p.requires_grad and p.ndim < 2]
         param_groups = [
-            dict(params=hidden_weights, use_muon=True, lr=0.02, weight_decay=0.01),
+            dict(params=hidden_weights, use_muon=True, lr=0.02, weight_decay=0.01, scale_mode=muon_scale),
             dict(params=hidden_gains_biases, use_muon=False, lr=3e-4, betas=(0.9, 0.95), weight_decay=0.01),
         ]
         print(f"Optimizer: training only body layers (embedding and lm_head frozen)")
@@ -224,7 +259,7 @@ def main(
         hidden_gains_biases = [p for n, p in body.named_parameters() if p.ndim < 2]
         nonhidden_params = [*model.lm_head.parameters(), *body.embed_tokens.parameters()]
         param_groups = [
-            dict(params=hidden_weights, use_muon=True, lr=0.02, weight_decay=0.01),
+            dict(params=hidden_weights, use_muon=True, lr=0.02, weight_decay=0.01, scale_mode=muon_scale),
             dict(params=hidden_gains_biases + nonhidden_params, use_muon=False, lr=3e-4, betas=(0.9, 0.95), weight_decay=0.01),
         ]
     trainer.optimizer = SingleDeviceMuonWithAuxAdam(param_groups)

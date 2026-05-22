@@ -74,8 +74,8 @@ def load_pretrained_dataset() -> tuple[Dataset, str]:
     spice_sample = int(0.004 * sample_cnt)
     
     # 定义额外数据集路径（你的本地路径）
+    # NOTE: 1.parquet 已移除（繁体中文，tokenizer 压缩率 0.82，一字一 token，训练效率极低）
     extra_data_files = [
-        "./dataset/1.parquet",
         "./dataset/2.parquet",
         "./dataset/3.parquet"
     ]

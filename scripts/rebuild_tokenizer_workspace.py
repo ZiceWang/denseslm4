@@ -285,7 +285,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--qwen-tokenizer", default=DEFAULT_QWEN_TOKENIZER)
     parser.add_argument("--sample-size", type=int, default=100000)
-    parser.add_argument("--top-qwen-tokens", type=int, default=19000)
+    parser.add_argument("--top-qwen-tokens", type=int, default=49000)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--tokenizer-output", type=Path, default=Path("tokenizer_output"))

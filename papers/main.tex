@@ -1,0 +1,72 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{helvet}
+\usepackage{courier}
+\usepackage{fullpage}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{natbib}
+
+\lstset{
+    basicstyle=\ttfamily\scriptsize,
+    numbers=left,
+    numberstyle=\tiny,
+    stepnumber=1,
+    numbersep=5pt,
+    backgroundcolor=\color{white},
+    showspaces=false,
+    showstringspaces=false,
+    frame=single,
+    breaklines=true,
+    postbreak=\mbox{\hookrightarrow\space},
+}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue,
+}
+
+\title{\textbf{DenseSLM4MoE: Achieving Useful Agent Capabilities at GPT-2 Scale} \\
+\Large{A Hybrid MLA + Mamba2 + Aux-Loss-Free MoE Architecture}}
+
+\author{
+    aaxczxxz \\
+    \texttt{13334689+aaxczxxz@user.noreply.gitee.com} \\
+    NEU-Lab2
+}
+
+\date{May 21, 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present DenseSLM4MoE, a hybrid decoder-only language model designed to achieve \textbf{useful agent-level capabilities at GPT-2 scale (~1.5B parameters)}. The architecture combines three proven innovations: Multi-head Latent Attention (MLA) from DeepSeek V2/V3 for compressed KV-cache and multi-turn conversation memory efficiency, Mamba2 state-space layers for efficient long-context processing and agent planning, and an aux-loss-free Mixture-of-Experts (MoE) module for parameter-efficient scaling without load-balancing auxiliary losses. DenseSLM4MoE v2 achieves \textbf{1.45B total parameters} (comparable to GPT-2 XL) with only $\sim$768M active parameters per forward pass, making it well-suited for efficient agent inference. We present complete training results from 22K vocab (DenseSLM4MoE v1) to 53K vocab (DenseSLM4MoE v2), alongside evaluations on C-Eval, TruthfulQA, and GSM8K benchmarks.
+\end{abstract}
+
+\input{sections/1_introduction}
+\input{sections/2_architecture}
+\input{sections/3_parameters}
+\input{sections/4_training}
+\input{sections/5_dataset}
+\input{sections/6_experiments}
+\input{sections/7_evaluation}
+\input{sections/8_conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

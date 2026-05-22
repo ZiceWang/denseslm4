@@ -1,0 +1,31 @@
+\section{Training Runs}
+\label{sec:experiments}
+
+\subsection{Overview}
+
+\begin{table}[h]
+    \centering
+    \caption{Training Runs Summary}
+    \begin{tabular}{lllrlll}
+        \toprule
+        \textbf{Run} & \textbf{Model} & \textbf{Scale} & \textbf{Steps} & \textbf{Loss} & \textbf{PPL} & \textbf{Status} \\
+        \midrule
+        tinystories & DenseSLM4 (dense) & 7M & 1,559 & 3.050 & 21.11 & Complete (smoke test) \\
+        my\_model\_new\_tokenizer & DenseSLM4 (dense) & 105M & 122,837 & 2.143 & 8.52 & Complete \\
+        denseslm4\_moe & DenseSLM4MoE v1 & $\sim$1.4B & 129,107 & 2.622 & 13.76 & Complete \\
+        denseslm4\_moe\_continued & DenseSLM4MoE v1 + continued & $\sim$1.4B & +19,367 & 2.591 & 13.34 & Complete \\
+        denseslm4\_moe\_v2 & DenseSLM4MoE v2 & \textbf{1.45B} & $\sim$55,900/190,967 & $\sim$2.4 & $\sim$11 & \textbf{In Progress (29\%)} \\
+        moe\_low\_rank\_ablation & Small Trans+MoE & 25M & 1,000 & 2.033 & 7.63 & Complete (ablation) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{DenseSLM4MoE v2 Training Progress}
+
+\begin{itemize}
+    \item \textbf{Start date:} $\sim$May 20, 2026
+    \item \textbf{Current step:} $\sim$55,900 of 190,967 planned (29\%)
+    \item \textbf{Checkpoints saved:} ckpt-30000, ckpt-40000, ckpt-50000
+    \item \textbf{Loss trajectory:} Step 0: $\sim$3.5 $\rightarrow$ Step 50K: $\sim$2.4 (rapid improvement in first half)
+    \item \textbf{Remaining:} $\sim$135K steps estimated $\sim$50 additional hours at current speed
+\end{itemize}

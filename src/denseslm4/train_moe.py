@@ -21,9 +21,12 @@ from transformers import (
     set_seed,
 )
 
+from safetensors.torch import load_file
+
 from denseslm4 import DenseSLM4MoeConfig, DenseSLM4MoeForCausalLM
 from denseslm4.muon import SingleDeviceMuonWithAuxAdam
 from denseslm4.pretrained_dataset import load_pretrained_dataset
+from torch.optim.lr_scheduler import LambdaLR
 
 DEFAULT_TOKENIZER = "tokenizer_workspace"
 DEFAULT_OUTPUT_DIR = Path("runs/denseslm4_moe")
@@ -52,30 +55,55 @@ def prepare_causal_lm_dataset(
     tokenize_num_proc: int | None,
     map_batch_size: int,
     text_column: str,
+    stride: int | None = None,
+    max_chunks_per_doc: int | None = None,
 ) -> DatasetDict:
-    """Tokenize raw text and rely on datasets fingerprint caching for reuse."""
-
     column_name = text_column
     if column_name not in raw_dataset["train"].column_names:
         available = ", ".join(raw_dataset["train"].column_names)
         raise ValueError(f"Text column '{column_name}' not found in train split. Available columns: {available}")
 
-    def tokenize(batch: dict[str, list[Any]]) -> dict[str, list[list[int]]]:
-        return tokenizer(
+    tokenized = raw_dataset.map(
+        lambda batch: tokenizer(
             batch[column_name],
-            truncation=True,
-            max_length=block_size,
+            truncation=stride is None,
+            max_length=block_size if stride is None else None,
             padding=False,
-        )
-
-    return raw_dataset.map(
-        tokenize,
+        ),
         batched=True,
         batch_size=map_batch_size,
         num_proc=tokenize_num_proc,
         remove_columns=raw_dataset["train"].column_names,
-        desc=f"Tokenizing to {block_size} tokens",
+        desc="Tokenizing",
     )
+
+    if stride is not None and stride < block_size:
+        if "attention_mask" in tokenized["train"].column_names:
+            tokenized = tokenized.remove_columns("attention_mask")
+
+        def chunk(examples):
+            chunks = []
+            for ids in examples["input_ids"]:
+                count = 0
+                for start in range(0, len(ids) - block_size + 1, stride):
+                    if max_chunks_per_doc is not None and count >= max_chunks_per_doc:
+                        break
+                    chunks.append(ids[start:start + block_size])
+                    count += 1
+            return {"input_ids": chunks}
+
+        desc = f"Chunking stride={stride}"
+        if max_chunks_per_doc is not None:
+            desc += f" max={max_chunks_per_doc}"
+        tokenized = tokenized.map(
+            chunk,
+            batched=True,
+            batch_size=map_batch_size,
+            num_proc=tokenize_num_proc,
+            desc=desc,
+        )
+
+    return tokenized
 
 
 def build_model(
@@ -125,6 +153,22 @@ def build_model(
     return DenseSLM4MoeForCausalLM(config)
 
 
+def get_wcl_scheduler(optimizer, num_warmup_steps, num_training_steps, switch_ratio=0.5):
+    """Warmup → Cosine (first half) → Linear (second half)."""
+    mid_val = math.cos(math.pi / 4)  # cos at halfway = ~0.707
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        d = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
+        d = min(d, 1.0)
+        if d < switch_ratio:
+            p = d / switch_ratio
+            return math.cos(p * math.pi / 4)  # 1 → 0.707
+        p = (d - switch_ratio) / (1 - switch_ratio)
+        return mid_val * (1 - p)  # 0.707 → 0
+    return LambdaLR(optimizer, lr_lambda)
+
+
 def ppl(loss: float) -> float:
     """Convert cross-entropy loss to perplexity."""
 
@@ -152,9 +196,10 @@ def main(
     num_train_epochs: Annotated[float, typer.Option(min=0.0, help="Number of training epochs.")] = 1.0,
     batch_size: Annotated[int, typer.Option(min=1, help="Per-device train/eval batch size.")] = 32,
     gradient_accumulation_steps: Annotated[int, typer.Option(min=1, help="Gradient accumulation steps.")] = 1,
-    learning_rate: Annotated[float, typer.Option(min=0.0, help="AdamW learning rate.")] = 3e-4,
+    learning_rate: Annotated[float, typer.Option(min=0.0, help="AdamW learning rate.")] = 1e-3,
+    muon_lr: Annotated[float, typer.Option(min=0.0, help="Muon optimizer learning rate for hidden weight matrices.")] = 1e-3,
     weight_decay: Annotated[float, typer.Option(min=0.0, help="AdamW weight decay.")] = 0.01,
-    warmup_steps: Annotated[int, typer.Option(min=0, help="Number of scheduler warmup steps.")] = 500,
+    warmup_steps: Annotated[int, typer.Option(min=0, help="Number of warmup steps for learning rate scheduler.")] = 100,
     bf16: Annotated[bool, typer.Option("--bf16/--no-bf16", help="Enable bf16 training when supported.")] = True,
     tf32: Annotated[bool, typer.Option("--tf32/--no-tf32", help="Enable TF32 matmul speedups on NVIDIA GPUs.")] = True,
     compile_model: Annotated[bool, typer.Option("--compile-model/--no-compile-model", help="Compile model with torch.compile before Trainer.")] = False,
@@ -168,6 +213,11 @@ def main(
     overwrite_output_dir: Annotated[bool, typer.Option("--overwrite-output-dir", help="Delete output_dir before training.")] = False,
     use_projected_embedding: Annotated[bool, typer.Option("--use-projected-embedding", help="Use projected frozen embedding from SVD.")] = False,
     projected_embedding_path: Annotated[str | None, typer.Option(help="Path to projected embedding checkpoint.")] = None,
+    resume_from_checkpoint: Annotated[str | None, typer.Option("--resume-from-checkpoint", help="Resume training from checkpoint path.")] = None,
+    stride: Annotated[int | None, typer.Option("--stride", help="Sliding window stride for chunking (None = truncate to block_size). Use block_size - overlap, e.g. 1024-128=896.")] = None,
+    muon_scale: Annotated[str, typer.Option("--muon-scale", help="Muon update scaling: kellerjordan (original) or moonlight (0.2*sqrt(max(A,B)) + wd 0.1).")] = "moonlight",
+    max_chunks_per_doc: Annotated[int | None, typer.Option("--max-chunks-per-doc", help="Max chunks per document with stride (None = unlimited).")] = None,
+    scheduler: Annotated[str, typer.Option("--scheduler", help="LR scheduler: linear, cosine, or wcl (warmup + cosine first half + linear second half).")] = "linear",
 ) -> None:
     """Pretrain DenseSLM4MoE on Hybrid Datasets using epoch-based Trainer scheduling."""
 
@@ -209,9 +259,16 @@ def main(
         tokenize_num_proc,
         map_batch_size,
         text_column,
+        stride=stride,
+        max_chunks_per_doc=max_chunks_per_doc,
     )
     if len(train_dataset["train"]) == 0 or len(train_dataset["validation"]) == 0:
         raise RuntimeError("Prepared dataset is empty; decrease --block-size or increase sample count.")
+
+    overlap = block_size - stride if (stride is not None and stride < block_size) else 0
+    print(f"Data: {len(train_dataset['train'])} train / {len(train_dataset['validation'])} val samples")
+    cap = f", max_chunks={max_chunks_per_doc}" if max_chunks_per_doc else ""
+    print(f"Chunk: block_size={block_size}, stride={stride or block_size}, overlap={overlap}{cap}")
 
     model = build_model(
         tokenizer, 
@@ -240,11 +297,62 @@ def main(
         f"expert={hidden_size}->{moe_intermediate_size}->{hidden_size}, "
         f"router={router_score_func}, bias_update={router_bias_update_rate}"
     )
+    # Load checkpoint weights manually (bypass from_pretrained which reinitializes)
+    if resume_from_checkpoint:
+        print(f"Loading checkpoint from {resume_from_checkpoint}")
+        state_dict = load_file(f"{resume_from_checkpoint}/model.safetensors")
+        model.load_state_dict(state_dict, strict=False)
+        model._retie_weights()
+        print("Checkpoint loaded successfully")
     if use_projected_embedding:
         print("Using projected frozen embedding mode")
     if compile_model:
         print(f"Compiling model with torch.compile(mode='{compile_mode}')")
         model = torch.compile(model, mode=compile_mode)
+    # Build Muon optimizer: hidden weight matrices -> Muon, embeddings/lm_head/gains/biases -> AdamW
+    body = model.model  # DenseSLM4MoeModel (the backbone)
+
+    if use_projected_embedding:
+        hidden_weights = [p for n, p in model.named_parameters() if p.requires_grad and p.ndim >= 2]
+        hidden_gains_biases = [p for n, p in model.named_parameters() if p.requires_grad and p.ndim < 2]
+        param_groups = [
+            dict(params=hidden_weights, use_muon=True, lr=muon_lr, weight_decay=0.01, scale_mode=muon_scale),
+            dict(params=hidden_gains_biases, use_muon=False, lr=learning_rate, betas=(0.9, 0.95), weight_decay=0.01),
+        ]
+        print("Optimizer: training only body layers (embedding and lm_head frozen)")
+        print(f"  Trainable params: {sum(p.numel() for p in hidden_weights + hidden_gains_biases) / 1e6:.2f}M")
+    else:
+        hidden_weights = [
+            p
+            for n, p in body.named_parameters()
+            if p.ndim >= 2 and "embed_tokens" not in n and "e_score_correction_bias" not in n
+        ]
+        hidden_gains_biases = [
+            p
+            for n, p in body.named_parameters()
+            if p.ndim < 2 and "e_score_correction_bias" not in n
+        ]
+        nonhidden_params = [*model.lm_head.parameters(), *body.embed_tokens.parameters()]
+        param_groups = [
+            dict(params=hidden_weights, use_muon=True, lr=muon_lr, weight_decay=0.01, scale_mode=muon_scale),
+            dict(params=hidden_gains_biases + nonhidden_params, use_muon=False, lr=learning_rate, betas=(0.9, 0.95), weight_decay=0.01),
+        ]
+    optimizer = SingleDeviceMuonWithAuxAdam(param_groups)
+    print(f"Optimizer: Muon(scale={muon_scale}, lr={muon_lr}) + AdamW(lr={learning_rate})")
+
+    if scheduler == "wcl":
+        max_steps = int(num_train_epochs * len(train_dataset["train"]) / (batch_size * gradient_accumulation_steps))
+        lr_scheduler = get_wcl_scheduler(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=max_steps,
+            switch_ratio=0.5,
+        )
+        print(f"Scheduler: WCL (warmup={warmup_steps}, cosine→linear @50%)")
+    else:
+        lr_scheduler = None
+        print(f"Scheduler: {scheduler}")
+
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=num_train_epochs,
@@ -253,11 +361,11 @@ def main(
         gradient_accumulation_steps=gradient_accumulation_steps,
         learning_rate=learning_rate,
         weight_decay=weight_decay,
-        warmup_steps=warmup_steps,
+        warmup_steps=0 if scheduler == "wcl" else warmup_steps,
         bf16=bf16 and torch.cuda.is_available(),
         tf32=tf32 and torch.cuda.is_available(),
         gradient_checkpointing=gradient_checkpointing,
-        lr_scheduler_type="cosine",
+        lr_scheduler_type=scheduler if scheduler != "wcl" else "constant",
         torch_empty_cache_steps=100,
         eval_strategy="steps",
         eval_steps=30000,
@@ -269,7 +377,8 @@ def main(
         report_to=["tensorboard", "swanlab"],
         remove_unused_columns=False,
         seed=seed,
-        dataloader_drop_last=True,  # 防止最后一个batch的尺寸不对齐导致Mamba CUDA算子抛错
+        dataloader_drop_last=True,
+        resume_from_checkpoint=resume_from_checkpoint,
     )
     trainer = Trainer(
         model=model,
@@ -277,47 +386,8 @@ def main(
         train_dataset=train_dataset["train"],
         eval_dataset=train_dataset["validation"],
         data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False, pad_to_multiple_of=8),
+        optimizers=(optimizer, lr_scheduler) if lr_scheduler else None,
     )
-
-    # Build Muon optimizer: hidden weight matrices -> Muon, embeddings/lm_head/gains/biases -> AdamW
-    body = model.model  # DenseSLM4MoeModel (the backbone)
-    
-    if use_projected_embedding:
-        # When using projected embedding:
-        # - embed_tokens (normal embedding) is NOT used
-        # - projected_embedding_layer is frozen
-        # - lm_head is frozen
-        # So only train body layers (Mamba/MLA/MoE blocks + norm)
-        
-        # Separate into hidden weights (Muon) and others (AdamW)
-        hidden_weights = [p for n, p in model.named_parameters() if p.requires_grad and p.ndim >= 2]
-        hidden_gains_biases = [p for n, p in model.named_parameters() if p.requires_grad and p.ndim < 2]
-        param_groups = [
-            dict(params=hidden_weights, use_muon=True, lr=0.02, weight_decay=0.01),
-            dict(params=hidden_gains_biases, use_muon=False, lr=3e-4, betas=(0.9, 0.95), weight_decay=0.01),
-        ]
-        print(f"Optimizer: training only body layers (embedding and lm_head frozen)")
-        print(f"  Trainable params: {sum(p.numel() for p in hidden_weights + hidden_gains_biases) / 1e6:.2f}M")
-    else:
-        # Normal mode: train everything
-        # Hidden weight matrices (2D, excluding embed_tokens which is handled separately)
-        hidden_weights = [
-            p
-            for n, p in body.named_parameters()
-            if p.ndim >= 2 and "embed_tokens" not in n and "e_score_correction_bias" not in n
-        ]
-        # Gains and biases (1D) + head + embeddings -> AdamW
-        hidden_gains_biases = [
-            p
-            for n, p in body.named_parameters()
-            if p.ndim < 2 and "e_score_correction_bias" not in n
-        ]
-        nonhidden_params = [*model.lm_head.parameters(), *body.embed_tokens.parameters()]
-        param_groups = [
-            dict(params=hidden_weights, use_muon=True, lr=0.02, weight_decay=0.01),
-            dict(params=hidden_gains_biases + nonhidden_params, use_muon=False, lr=3e-4, betas=(0.9, 0.95), weight_decay=0.01),
-        ]
-    trainer.optimizer = SingleDeviceMuonWithAuxAdam(param_groups)
 
     # Initialize SwanLab experiment tracking
     swanlab.init(
