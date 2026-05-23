@@ -61,6 +61,7 @@ class DenseSLM4MoeConfig(PretrainedConfig):
         pad_token_id: int = 0,
         bos_token_id: int = 1,
         eos_token_id: int = 2,
+        tie_word_embeddings: bool = True,
         initializer_range: float = 0.02,
         use_projected_embedding: bool = False,
         projected_embedding_path: str | None = None,
@@ -121,5 +122,6 @@ class DenseSLM4MoeConfig(PretrainedConfig):
             pad_token_id=pad_token_id,
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
+            tie_word_embeddings=tie_word_embeddings,
             **kwargs,
         )

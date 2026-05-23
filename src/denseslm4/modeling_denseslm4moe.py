@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.checkpoint import checkpoint
 from transformers.cache_utils import DynamicCache
 from transformers import GenerationMixin, PreTrainedModel
 from transformers.activations import ACT2FN
@@ -109,6 +110,7 @@ class DenseSLM4Moe(nn.Module):
         self.top_k = config.num_experts_per_tok
         self.norm_topk_prob = config.norm_topk_prob
         self.routed_scaling_factor = config.routed_scaling_factor
+        self.disable_bias_update = False
 
         if self.n_routed_experts % self.n_group != 0:
             raise ValueError("n_routed_experts must be divisible by n_group")
@@ -144,7 +146,7 @@ class DenseSLM4Moe(nn.Module):
             topk_weights = topk_weights / (topk_weights.sum(dim=-1, keepdim=True) + 1e-20)
         topk_weights = topk_weights * self.routed_scaling_factor
 
-        if self.training:
+        if self.training and not self.disable_bias_update:
             with torch.no_grad():
                 load = torch.bincount(topk_indices.reshape(-1), minlength=self.config.n_routed_experts).to(
                     dtype=torch.float32,
@@ -162,7 +164,7 @@ class DenseSLM4Moe(nn.Module):
         topk_indices, topk_weights = self.route_tokens_to_experts(router_logits)
         flat_hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
         routed_states = self.experts(flat_hidden_states, topk_indices, topk_weights).view(*original_shape)
-        if self.training:
+        if self.training and not self.disable_bias_update:
             self.update_expert_bias()
         return routed_states + self.shared_experts(residual)
 
@@ -182,27 +184,37 @@ class DenseSLM4MoePreTrainedModel(PreTrainedModel):
     _is_stateful = True
     _keep_in_fp32_modules_strict = ["e_score_correction_bias"]
 
+    @torch.no_grad()
     def _init_weights(self, module: nn.Module) -> None:
         std = self.config.initializer_range
         if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=std)
+            if not getattr(module.weight, "_is_hf_initialized", False):
+                module.weight.data.normal_(mean=0.0, std=std)
             if module.bias is not None:
-                module.bias.data.zero_()
+                if not getattr(module.bias, "_is_hf_initialized", False):
+                    module.bias.data.zero_()
         elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.padding_idx is not None:
+            if not getattr(module.weight, "_is_hf_initialized", False):
+                module.weight.data.normal_(mean=0.0, std=std)
+            if module.padding_idx is not None and not getattr(module.weight, "_is_hf_initialized", False):
                 module.weight.data[module.padding_idx].zero_()
         elif isinstance(module, DenseSLM4MoeTopkRouter):
-            module.weight.data.normal_(mean=0.0, std=std)
-            module.e_score_correction_bias.data.zero_()
+            if not getattr(module.weight, "_is_hf_initialized", False):
+                module.weight.data.normal_(mean=0.0, std=std)
+            if not getattr(module.e_score_correction_bias, "_is_hf_initialized", False):
+                module.e_score_correction_bias.data.zero_()
         elif isinstance(module, DenseSLM4MoeExperts):
-            module.up_proj.data.normal_(mean=0.0, std=std)
-            module.down_proj.data.normal_(mean=0.0, std=std)
+            if not getattr(module.up_proj, "_is_hf_initialized", False):
+                module.up_proj.data.normal_(mean=0.0, std=std)
+            if not getattr(module.down_proj, "_is_hf_initialized", False):
+                module.down_proj.data.normal_(mean=0.0, std=std)
         elif isinstance(module, nn.LayerNorm) or isinstance(module, nn.RMSNorm):
             if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
+                if not getattr(module.bias, "_is_hf_initialized", False):
+                    module.bias.data.zero_()
             if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
+                if not getattr(module.weight, "_is_hf_initialized", False):
+                    module.weight.data.fill_(1.0)
 
 
 class DenseMLAMoeBlock(nn.Module):
@@ -268,7 +280,23 @@ class DenseSLM4MoeModel(DenseSLM4MoePreTrainedModel):
             else:
                 self.layers.append(DenseMamba2Block(config, layer_idx=i))
         self.norm = nn.LayerNorm(config.hidden_size)
+        self.gradient_checkpointing = False
         self.post_init()
+
+    def _checkpoint_layer(self, layer: nn.Module, hidden_states: torch.Tensor) -> torch.Tensor:
+        moe_modules = [module for module in layer.modules() if isinstance(module, DenseSLM4Moe)]
+
+        def layer_forward(states: torch.Tensor) -> torch.Tensor:
+            old_values = [module.disable_bias_update for module in moe_modules]
+            for module in moe_modules:
+                module.disable_bias_update = True
+            try:
+                return layer(states)
+            finally:
+                for module, old_value in zip(moe_modules, old_values, strict=True):
+                    module.disable_bias_update = old_value
+
+        return checkpoint(layer_forward, hidden_states, use_reentrant=False)
 
     def forward(
         self,
@@ -280,6 +308,9 @@ class DenseSLM4MoeModel(DenseSLM4MoePreTrainedModel):
         hidden_states = self.embed_tokens(input_ids)
         hidden_states = self.dropout(hidden_states)
         for layer in self.layers:
+            if self.gradient_checkpointing and self.training and not use_cache:
+                hidden_states = self._checkpoint_layer(layer, hidden_states)
+                continue
             if use_cache:
                 hidden_states, past_key_values = layer(
                     hidden_states,
@@ -303,6 +334,8 @@ class DenseSLM4MoeModel(DenseSLM4MoePreTrainedModel):
 
 class DenseSLM4MoeForCausalLM(DenseSLM4MoePreTrainedModel, GenerationMixin):
     """DenseSLM4MoE language model with Hugging Face checkpoint compatibility."""
+
+    _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
 
     def __init__(self, config: DenseSLM4MoeConfig) -> None:
         super().__init__(config)
@@ -332,25 +365,7 @@ class DenseSLM4MoeForCausalLM(DenseSLM4MoePreTrainedModel, GenerationMixin):
             print("Frozen embedding and lm_head tied together")
         else:
             self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-            self.lm_head.weight = self.model.embed_tokens.weight
         self.post_init()
-
-    def _untie_weights(self) -> None:
-        if self.use_projected_embedding:
-            return
-        if self.lm_head.weight is self.model.embed_tokens.weight:
-            self.lm_head.weight = nn.Parameter(self.model.embed_tokens.weight.data.clone())
-
-    def _retie_weights(self) -> None:
-        if self.use_projected_embedding:
-            return
-        if self.lm_head.weight is not self.model.embed_tokens.weight:
-            self.lm_head.weight = self.model.embed_tokens.weight
-
-    def save_pretrained(self, save_directory, **kwargs):
-        self._untie_weights()
-        super().save_pretrained(save_directory, **kwargs)
-        self._retie_weights()
 
     def get_input_embeddings(self) -> nn.Embedding:
         return self.model.embed_tokens

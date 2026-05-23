@@ -16,7 +16,7 @@ from transformers import TextIteratorStreamer
 
 def main():
     parser = argparse.ArgumentParser(description="Test MoE model generation")
-    parser.add_argument("--checkpoint", type=str, default="runs/denseslm4_moe/final_model",
+    parser.add_argument("--checkpoint", type=str, default="./runs/denseslm4_moe/final_model",
                         help="Path to checkpoint")
     parser.add_argument("--prompt", type=str, default="Once upon a time",
                         help="Prompt for generation")
@@ -28,19 +28,8 @@ def main():
                         help="Disable streaming and print the final decoded text")
     args = parser.parse_args()
 
-    # Load config
-    with open(f"{args.checkpoint}/config.json") as f:
-        config_dict = json.load(f)
-    config = DenseSLM4MoeConfig(**{k: v for k, v in config_dict.items()
-                            if k in DenseSLM4MoeConfig.__init__.__code__.co_varnames})
-    print(f"Config: vocab_size={config.vocab_size}, hidden_size={config.hidden_size}, "
-          f"num_hidden_layers={config.num_hidden_layers}")
-
     # Create model
-    model = DenseSLM4MoeForCausalLM(config)
-    state_dict = load_file(f"{args.checkpoint}/model.safetensors")
-    model.load_state_dict(state_dict, strict=False)
-    model._retie_weights()
+    model = DenseSLM4MoeForCausalLM.from_pretrained(args.checkpoint)
     model = model.cuda().to(torch.bfloat16)
     model.eval()
     print("Model loaded!")

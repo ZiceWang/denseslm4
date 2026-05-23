@@ -20,8 +20,10 @@ dependencies = [
     "swanlab>=0.7.18",
     "tensorboard>=2.20.0",
     "thop>=0.1.1.post2209072238",
+    "tilelang>=0.1.8",
     "torch>=2.11.0",
     "transformers>=5.8.0",
+    "trl>=1.4.0",
     "typer>=0.25.1",
 ]
 
