@@ -74,7 +74,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Test generation from checkpoint")
     parser.add_argument("--checkpoint", type=str, 
-                       default="/data1/neu_lab2/denseslm4/runs/tinystories/final_model",
+                       default="runs/tinystories/final_model",
                        help="Path to checkpoint")
     parser.add_argument("--prompt", type=str, default="Once upon a time",
                        help="Prompt for generation")

@@ -178,7 +178,7 @@ print("保存 SVD 投影到 512 维")
 print("="*60)
 
 target_dim = 512
-save_dir = "/data1/neu_lab2/denseslm4/src/denseslm4/embedding/projected_embedding"
+save_dir = "src/denseslm4/embedding/projected_embedding"
 
 # SVD 投影
 U, S, Vt = torch.linalg.svd(embed_float, full_matrices=False)

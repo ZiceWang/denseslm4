@@ -1,10 +1,10 @@
 [project]
 name = "denseslm4"
 version = "0.1.0"
-description = "Add your description here"
+description = "SSLM: a hybrid MLA + Mamba2 + aux-loss-free MoE decoder-only language model at GPT-2 scale"
 readme = "README.md"
 authors = [
-    { name = "aaxczxxz", email = "13334689+aaxczxxz@user.noreply.gitee.com" }
+    { name = "Zice Wang", email = "254056514+ZiceWang@users.noreply.github.com" }
 ]
 requires-python = ">=3.13"
 dependencies = [

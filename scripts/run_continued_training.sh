@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /data1/neu_lab2/denseslm4
+cd "$(dirname "$0")/.."
 source .venv/bin/activate
 exec python -m denseslm4.train_moe \
   --num-train-epochs 0.15 \
