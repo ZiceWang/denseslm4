@@ -1,24 +1,18 @@
-\section{Conclusion and Future Work}
+\section{Conclusion}
 \label{sec:conclusion}
 
 DenseSLM4MoE demonstrates a practical hybrid architecture achieving GPT-2-scale parameters (1.45B) with significantly improved active-parameter efficiency ($\sim$768M active vs 1.45B total). The combination of MLA (compressed KV), Mamba2 (efficient SSM layers), and aux-loss-free MoE provides a strong foundation for agent workloads at small scale.
 
 \subsection{Current Status}
 \begin{itemize}
-    \item DenseSLM4MoE v2 training is 29\% complete
+    \item DenseSLM4MoE v2 pretraining is complete (190{,}967 steps, one epoch over $\sim$6.3B tokens), reaching an evaluation perplexity of 11.49
     \item Architecture is validated through ablation and v1 experiments
     \item Training is stable with no loss spikes or divergence
 \end{itemize}
 
 \subsection{What's Needed to Reach ``Useful Agent Level''}
 
-\begin{enumerate}
-    \item \textbf{Complete v2 training} (remaining $\sim$135K steps, $\sim$50 hours)
-    \item \textbf{RLHF/DPO finetuning:} Current results suggest the model has knowledge but needs preference learning to be useful
-    \item \textbf{Tool-use finetuning:} Fine-tune on tool-calling datasets (ReAct-style \citep{react})
-    \item \textbf{Chinese language improvement:} More high-quality Chinese data
-    \item \textbf{Math reasoning:} Orca Math QA was only 5\% of corpus; more math data + chain-of-thought would help
-\end{enumerate}
+Concrete next steps are detailed in Section~\ref{sec:futurework}.
 
 \subsection{Limitations}
 \begin{itemize}

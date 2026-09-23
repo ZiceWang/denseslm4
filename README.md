@@ -37,7 +37,7 @@ SSLM v2 combines three ingredients:
 | `my_model_new_tokenizer` | DenseSLM4 (dense) | 105M | 122,837 | 2.143 | 8.52 | completed |
 | `denseslm4_moe` | DenseSLM4MoE v1 | ~1.4B | 129,107 | 2.622 | 13.76 | completed |
 | `denseslm4_moe_continued` | DenseSLM4MoE v1 + continued | ~1.4B | +19,367 | 2.591 | 13.34 | completed |
-| `denseslm4_moe_v2` | DenseSLM4MoE v2 | **1.45B** | ~55,900 / 190,967 | ~2.4 | ~11 | in progress |
+| `denseslm4_moe_v2` | DenseSLM4MoE v2 | **1.45B** | 190,967 | 2.441 | 11.49 | completed |
 
 ## Evaluation
 
@@ -100,4 +100,7 @@ Core dependencies: `torch>=2.11` (cu128), `transformers>=5.8`, `flash-attn`, `ma
 ## Status
 
 - `DenseSLM4` (dense 105M) and `DenseSLM4MoE` v1 (~1.4B) are trained and evaluated.
-- `DenseSLM4MoE` v2 (1.45B) pretraining was in progress at the time of the report.
+- `DenseSLM4MoE` v2 (1.45B) pretraining is complete: one epoch over ~6.3B tokens
+  (190,967 steps), evaluation perplexity 11.49; a preliminary SFT stage reaches 8.34.
+- Next steps (scaling compute, matched baselines, post-training, long context, ablations)
+  are listed in `papers/sections/9_future_work.tex`.

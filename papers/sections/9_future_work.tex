@@ -1,0 +1,46 @@
+\section{Future Work}
+\label{sec:futurework}
+
+The present results characterise a first working point of the hybrid design
+(1.45B total / $\sim$768M active parameters, $\sim$6.3B training tokens). The
+following steps are needed before any claim about ``useful agent'' capability, or
+about the architectural choices themselves, can be substantiated.
+
+\paragraph{Scaling pretraining compute.}
+Training consumed roughly $6.3$B tokens (one epoch over $6.1$M $\times$ 1024-token
+chunks), which is well below compute-optimal for a model of this size. Scaling to
+$10^2$--$10^3$B tokens is expected to be the single largest source of improvement and
+is the natural next run.
+
+\paragraph{Matched-baseline comparison.}
+The current evaluation does not isolate the contribution of the hybrid architecture.
+A controlled study at an identical token budget should compare against (i) a dense
+Transformer of matched active parameters and (ii) a public same-scale base model
+(e.g.\ Pythia-1.4B) at matched tokens, before attributing any gain to MLA, Mamba2, or
+the aux-loss-free MoE.
+
+\paragraph{Post-training.}
+So far only next-token-prediction pretraining and a preliminary SFT stage have been
+run. Supervised instruction tuning followed by preference optimisation (DPO/RLHF)
+should be evaluated end-to-end, since the current gap is dominated by missing
+preference learning rather than by the architecture.
+
+\paragraph{Evaluation coverage.}
+Beyond C-Eval, TruthfulQA, and GSM8K, the agent setting requires code generation
+(HumanEval/MBPP), long-context retrieval, and multi-turn tool-use tasks. Every reported
+score should be accompanied by the token budget and by matched-baseline deltas.
+
+\paragraph{Architecture ablations.}
+The routed-expert count and top-$k$, the MLA KV-compression rank, and the
+Mamba2/attention interleaving ratio should be swept under a fixed token budget, so that
+each component's contribution is measured rather than assumed.
+
+\paragraph{Long context.}
+The current context window is 1024 tokens. Extending it via position interpolation and
+continued pretraining is a prerequisite for the document- and tool-heavy workloads the
+architecture targets.
+
+\paragraph{Inference efficiency.}
+The constant-size KV cache and SSM state, together with the TileLang kernel path, should
+be benchmarked on throughput and peak memory, in order to quantify the active-parameter
+efficiency claim on realistic agent workloads.
